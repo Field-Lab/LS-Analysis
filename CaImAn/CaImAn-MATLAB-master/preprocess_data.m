@@ -34,6 +34,8 @@ function [P,Y] = preprocess_data(Y,p,options)
 % Author: Eftychios A. Pnevmatikakis
 %           Simons Foundation, 2015
 
+%---------- Modified by Suva Roy. 04/13/2020 ----------%
+
 defoptions = CNMFSetParms;
 
 if nargin < 3 || isempty(options); options = defoptions; end
@@ -123,7 +125,8 @@ end
 
 if options.flag_g
     if ndims(Y) == 3
-        Y = reshape(Y,size(Y,1)*size(Y,2),size(Y,3));
+        %Y = reshape(Y,size(Y,1)*size(Y,2),size(Y,3));
+        Ytemp = reshape(Y,size(Y,1)*size(Y,2),size(Y,3));           %---------- Modified by Suva Roy. 04/13/2020 ----------%
     end
 
     ff = options.pixels;
@@ -134,7 +137,8 @@ if options.flag_g
     mp = max(p);
     lags = options.lags + mp;
     if split_data 
-        Ycl = mat2cell(Y(ff,:),ones(np,1),size(Y,2));
+        %Ycl = mat2cell(Y(ff,:),ones(np,1),size(Y,2));              %---------- Modified by Suva Roy. 04/13/2020 ----------%
+        Ycl = mat2cell(Ytemp(ff,:),ones(np,1),size(Ytemp,2));
         XC = cell(np,1);
         parfor j = 1:np
             XC{j} = xcov(Ycl{j},lags,'biased');
@@ -143,7 +147,8 @@ if options.flag_g
     else
         XC = zeros(np,2*lags+1);
         for j = 1:np
-            XC(j,:) = xcov(Y(ff(j),:),lags,'biased');
+            %XC(j,:) = xcov(Y(ff(j),:),lags,'biased');              %---------- Modified by Suva Roy. 04/13/2020 ----------%
+            XC(j,:) = xcov(Ytemp(ff(j),:),lags,'biased');
         end
     end
     
@@ -170,4 +175,5 @@ if options.flag_g
     disp(ph);
     fprintf('Done after %2.2f seconds. \n',toc(tt1));
     P.g = ph(:);
+    
 end

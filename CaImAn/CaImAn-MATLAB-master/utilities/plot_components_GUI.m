@@ -58,7 +58,7 @@ if save_avi
     open(vidObj);
 end
 thr = 0.95;
-fig = figure('Visible','off');
+fig = figure('Visible','on');
 set(gcf,'Position',2*[300,300,960,480]);
 set(gcf,'PaperPosition',2*[300,300,960,480]);
 int_x = zeros(nr,2*sx);

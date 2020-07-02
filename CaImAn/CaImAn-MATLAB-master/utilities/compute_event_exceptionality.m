@@ -29,6 +29,8 @@ function [fitness,erfc,sd_r,md] = compute_event_exceptionality(traces,N,robust_s
 
 %}
 
+%----------- Modified by Suva Roy. 04/15/2020 -------------%
+
 T=size(traces,2);
 
 md = max(mode_robust(traces, 2),0);
@@ -46,11 +48,13 @@ if robust_std
     ff1 = sort(ff1, 2);
     ff1(ff1 == 0) = nan;
     Ns = round(sum(ff1 > 0, 2) * .5);
-    iqr_h = zeros(size(traces,1));
+    %iqr_h = zeros(size(traces,1));
+    iqr_h = zeros(size(traces,1),1);       %----------- Modified by Suva Roy. 04/15/2020 -------------%
     idx = 1;
     for idx = 1:size(ff1,1) 
         el = ff1(idx,:);
-        iqr_h(idx) = ff1(idx, -Ns(idx));
+        %iqr_h(idx) = ff1(idx, -Ns(idx)); 
+        iqr_h(idx) = ff1(idx, Ns(idx));     %----------- Modified by Suva Roy. 04/15/2020 -------------%
     end
     % approximate standard deviation as iqr/1.349
     sd_r = 2 * iqr_h / 1.349;

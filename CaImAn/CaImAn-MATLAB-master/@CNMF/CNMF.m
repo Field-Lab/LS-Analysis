@@ -314,6 +314,7 @@ classdef CNMF < handle
             end
             obj.fitness = compute_event_exceptionality(obj.C + obj.R,obj.options.N_samples_exc,obj.options.robust_std);
             obj.keep_exc = (obj.fitness < obj.options.min_fitness);
+            %obj.keep_exc = logical(ones(size(obj.fitness)));  % -------------------modified by Suva Roy-------------
         end
         
         %% correlation image
@@ -355,7 +356,7 @@ classdef CNMF < handle
         function plotCenters(obj)
             if isempty(obj.CI); Cn = reshape(obj.sn,obj.dims); else; Cn = obj.CI; end
             COM(obj);
-            figure;imagesc(Cn); axis equal; axis tight; hold all;
+            figure;imshow(Cn,[]); axis equal; axis tight; hold all;
                 scatter(obj.cm(:,2),obj.cm(:,1),'mo');
                 title('Center of ROIs found from initialization algorithm');
                 drawnow; hold off;

@@ -78,10 +78,11 @@
                         otherwise
                             error('unknown method for averaging noise..')
                     end
-                    
+                    PSDX{ind} = psdx;
                 end
             end
             sn = cell2mat(SN);
+            psdx = cell2mat(PSDX);
         else
             xdft = fft(Y);
             xdft = xdft(:,1:floor(N/2)+1);
@@ -98,7 +99,7 @@
                     error('unknown method for averaging noise..')
             end
         end
-        psdx = cell2mat(PSDX);
+        
         if dims > 2
             sn = reshape(sn,sizY(1:dims-1));
         end

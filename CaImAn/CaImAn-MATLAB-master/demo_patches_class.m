@@ -53,11 +53,13 @@ CNM.gnb = gnb;
 CNM.K = K;
 CNM.patch_size = patch_size;                % size of each patch along each dimension (optional, default: [32,32])
 CNM.overlap = overlap;                      % amount of overlap in each dimension (optional, default: [4,4])
+
+
+%% Create and fit all patches
+
 CNM.createPatches();                        % create patches
+CNM.fitPatches();                           % fit patches 
 
-
-%% fit all patches
-CNM.fitPatches();
 
 %% component classification
 

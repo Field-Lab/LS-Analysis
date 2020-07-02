@@ -1,11 +1,37 @@
  
 %% Set up data path 
-caimanpath = 'Z:/lab/Experiments/Array/Shared/sroy/CaImAn-MATLAB-master/';
-tiffpath = ['Z:/lab/Experiments/Imaging/Light_sheet/Analysis/2020-03-18-0/',...
-    'RE_multipagetiffs/RGC_somas_ShadowSide_Custom_bin2_EO_5x_IO_20x_0.4NA_LP_28mW_Exp_50ms_LaserEvoked_1/',...
-    'FIJI_Processed/RGC_somas_ShadowSide_Custom_bin2_EO_5x_IO_20x_0.4NA_LP_28mW_Exp_50ms_Laser_1.tif']; 
-hier = find(tiffpath=='/',2,'last'); 
-savefigpath = tiffpath(1:hier(1)); 
+
+% Load scripts 
+% startup;
+
+% Choose architecture: 
+%   1. Linux
+%   2. MacOS 
+%   3. Windows
+arch = 'MacOS';
+
+% Set path directive 
+if strcmpi(arch, 'Linux')
+    initpath = '/Volumes/dusom_fieldlab/All_Staff/lab/';
+elseif strcmpi(arch, 'MacOS')
+    initpath = '/Volumes/dusom_fieldlab/All_Staff/lab/';
+elseif strcmpi(arch, 'Windows')
+    initpath = 'Z:/lab/';
+end
+
+% Set full path for raw data, scripts and analyzed data and figures 
+caimanpath = ['/Users/Suva/Documents/Projects/LightSheet/MatlabCodes/CaImAn-MATLAB-master/'];
+tiffpath = ['/Users/Suva/Documents/Projects/LightSheet/Temp_data_storage/2020-04-02-0/ShadowTop_BCTerm_1134x668_bin2_EO_5x_IO_20x_0.3NA_LP_7mW_50ms_Spont.tif'];
+fijiprojim = [];
+if ~exist('/Users/Suva/Documents/Projects/LightSheet/Temp_data_storage/2020-04-02-0/Matlab_data_figs','dir')
+    mkdir('/Users/Suva/Documents/Projects/LightSheet/Temp_data_storage/2020-04-02-0/Matlab_data_figs');
+end
+
+% Link necessary files and scripts 
+addpath(caimanpath); 
+addpath(genpath([caimanpath,'utilities'])); 
+addpath(genpath([caimanpath,'deconvolution'])); 
+addpath(genpath('/Users/Suva/Documents/Projects/LightSheet/MatlabCodes/Internal_denoising/')); 
 
 % caimanpath = 'Z:/lab/Experiments/Array/Shared/sroy/CaImAn-MATLAB-master/';
 % tiffpath = 'Z:/lab/Experiments/Imaging/Light_sheet/Analysis/2020-03-10-0/Multipagetiff/Data11/Data11.tif';
@@ -15,6 +41,8 @@ savefigpath = tiffpath(1:hier(1));
 %     '2020-03-18-0/RE_multipagetiffs/RGC_somas_ShadowSide_Custom_bin2_EO_5x_IO_20x_0.4NA_LP_28mW_Exp_50ms_LaserEvoked_1/',...
 %     'FIJI_Processed/RGC_somas_ShadowSide_Custom_bin2_EO_5x_IO_20x_0.4NA_LP_28mW_Exp_50ms_Laser_1.tif']; 
 
+
+%% Set up parallel workers, gpu arrays, and located mex files 
 
 % Setup parallel workers 
 v = ver; 
@@ -27,6 +55,22 @@ if popt
     end
 end
 
+% Set up gpu flag (if it exists)
+if ~gpuDeviceCount
+    gpuflag = true;  
+else
+    gpuflag = false;  
+end
+    
+% Set up mex files (need to be recompiled if unlinked) 
+outstr = which('graph_conn_comp_mex'); 
+if isempty(outstr)
+    mex -setup C;
+    mex -setup C++; 
+    mexfilepath = fullfile(caimanpath,'utilities/graph_conn_comp_mex.cpp'); 
+    mex('-v','-compatibleArrayDims',mexfilepath, '-outdir',fullfile(caimanpath,'utilities/'));
+end
+
 %% Read image file, remove outliers, denoise images 
 
 % Steps: 
@@ -35,8 +79,8 @@ end
 %       watching the activity in FIJI)
 %   (3) Denoise images using either pre-trained deep learning network
 %   (4) Identify sequence of images where light was flashed (not implemented yet)
-%   (5) 
 
+% ****** Implement sparse/Tall arrays for memory efficiency 
 
 % ------------------------------ Step 1 -----------------------------------
 % Read image properties 
@@ -47,18 +91,23 @@ dims = [info(1).Height info(2).Width];
 AOI_red{1} = 1:dims(1); % Area of interest (reduced)
 AOI_red{2} = 1:dims(2); 
 
+num_images = 300; 
+fps = 1000/50; % frame rate 
+decaytconst = 270/1000; % sec (GCaMP7f: from Dana etal. 2018)
 
 % ------------------------------ Step 2 -----------------------------------
 % Calcium image files can be big, we want to minimize redundancy in the
 % image set for analysis as much as possible 
 
-% Max Z projection for identification of Area of Interest 
+% Max std projection for identification of Area of Interest 
 im_uint16 = zeros([dims num_images],'uint16'); 
 parfor k=1:num_images
     im_uint16(:,:,k) = imread(tiffpath,k); 
     fprintf(sprintf('Read %d of %d images\n',k,num_images));
 end
 medZim = median(im_uint16,3);  % Median projection
+stdZim = std(double(im_uint16),0,3); % std projection
+
 
 % Ask user for selecting Area of Interest
 hf = figure(1); imshow(medZim,[]); hold on; title('Select the vertices of rectangular Area of Interest'); 
@@ -68,11 +117,11 @@ for i=1:2
     h = plot(x(i),y(i),'or','markersize',12,'linewidth',3); hold on; 
     set(get(get(h,'Annotation'),'LegendInformation'),'IconDisplayStyle','off'); 
 end
-x = sort(x); y = sort(y); 
+x = sort(ceil(x)); y = sort(ceil(y)); 
 AOI_x = [x(1) x(2) x(2) x(1) x(1)]; % Area of Interest
 AOI_y = [y(1) y(1) y(2) y(2) y(1)]; 
-plot(AOI_x,AOI_y,'-y','linewidth',6); legend('Area for analysis'); 
-saveas(hf, [savefigpath,'AOI_selection'], 'fig'); 
+plot(AOI_x,AOI_y,'-y','linewidth',3); legend('Area for analysis'); 
+%saveas(hf, [savefigpath,'AOI_selection'], 'fig'); 
 
 % Generate a smaller set of image 
 im_uint16_red = im_uint16(min(AOI_y):max(AOI_y),min(AOI_x):max(AOI_x),:); 
@@ -87,33 +136,62 @@ dims_red = [size(im_uint16_red,1) size(im_uint16_red,2)];
 
 % Estimate total time
 net = denoisingNetwork('DnCNN');
-[tt,nhr] = deal(zeros(1,2)); 
-tic; ill_medZim_denoised{1} = TVL1(medZim, 0.5, 100); tt(1) = toc; 
-tic; ill_medZim_denoised{2} = denoiseImage(medZim,net); tt(2) = toc; 
-for i=1:2
+[tt,nhr] = deal(zeros(1,3)); 
+tic; ill_medZim_denoised{1} = imnlmfilt(medZim,'SearchWindowSize',15,'ComparisonWindowSize',5); tt(1) = toc; 
+tic; ill_medZim_denoised{2} = TVL1(medZim, 0.5, 100); tt(2) = toc; 
+tic; ill_medZim_denoised{3} = denoiseImage(medZim,net); tt(3) = toc; 
+for i=1:size(ill_medZim_denoised)
     ttime = ceil(tt(i)*num_images); nhr(i) = (ttime/60/60); 
 end
 
+
 % Denoise images 
 answ = questdlg( 'Which method do you want to use for DeNoising images?','De-noise image set.',...
-    ['Total Variation Regularization L1 (Estimated time = ',num2str(nhr(1)),' hrs.)'],...
-    ['Matlab Neural Net (Estimated time = ',num2str(nhr(2)),' hrs.)'],'None',...
-    ['Total Variation Regularization L1 (Estimated time = ',num2str(nhr(1)),' hrs.)']); 
-if strcmp(answ(1),'T')
-    lambda = 0.5; 
-    niter = 100; 
-    
-    % Need to define appropriate value for regularization parameter: lambda
+    ['Non-local Means (Estimated time = ',num2str(nhr(1)),' hrs.)'],...
+    ['Total Variation Regularization L1 (Estimated time = ',num2str(nhr(2)),' hrs.)'],...
+    ['Matlab Neural Net (Estimated time = ',num2str(nhr(3)),' hrs.)'],'None',...
+    ['Non-local Means (Estimated time = ',num2str(nhr(1)),' hrs.)']); 
 
+
+pos = [355   451   734   209];
+f = uifigure('Position',pos);
+bg = uibuttongroup(f,'Position',[pos(1)+10 pos(2)+10 pos(3)-10 pos(4)-10]);
+tb1 = uitogglebutton(bg,'Position',[pos(1)+10 pos(2)+10 pos(3)-10 pos(4)-10],'Text','One');
+tb2 = uitogglebutton(bg,'Position',[11 140 140 22],'Text','Two');
+tb3 = uitogglebutton(bg,'Position',[11 115 140 22],'Text','Three');
+tb4 = uitogglebutton(bg,'Position',[11 90 140 22],'Text','Four');
+tb5 = uitogglebutton(bg,'Position',[11 65 140 22],'Text','Five');
+tb6 = uitogglebutton(bg,'Position',[11 40 140 22],'Text','Six');
+
+if strcmp(answ(1:2),'No')
+    tic
     im_doub_touse = zeros([dims_red num_images],'double');
     parfor k=1:num_images
+        imtemp = cast(im_uint16_red(:,:,k),'double');
+        im_doub_touse(:,:,k) = imnlmfilt(imtemp,'DegreeOfSmoothing',18,'SearchWindowSize',15,'ComparisonWindowSize',5);
+        fprintf('Images %d of %d done\n',k,num_images);
+    end
+    toc
+    meth = 'NLM';
+    clear imtemp;
+    
+elseif strcmp(answ(1:2),'To')
+    
+    % Need to define appropriate value for regularization parameter: lambda
+    lambda = 1; 
+    niter = 100; 
+    
+    im_doub_touse = zeros([dims_red num_images],'double');
+    parfor k=num_images
         imtemp = TVL1(im_uint16_red(:,:,k), lambda, niter);
         im_doub_touse(:,:,k) = imtemp; 
         fprintf(sprintf('Read %d of %d images\n',k,num_images));
     end
     meth = 'TV-L1';
     clear imtemp; 
-elseif strcmp(answ(1),'M')
+    
+elseif strcmp(answ(1:2),'Ma')
+    
     im_doub_touse = zeros([dims_red num_images],'double');
     parfor k=1:num_images
         imtemp = cast(im_uint16_red(:,:,k),'double');
@@ -122,48 +200,58 @@ elseif strcmp(answ(1),'M')
     end
     meth = 'Neural Net'; 
     clear imtemp; 
-elseif strcmp(answ(1),'N')
+    
+elseif strcmp(answ(1:2),'N')
+    
     im_doub_touse = cast(im_uint16_red,'double'); 
     meth = 'No denoising';
+    
 end 
-save(['Z:/lab/Experiments/Imaging/Light_sheet/Analysis/2020-03-18-0/RE_multipagetiffs/',...
-    'RGC_somas_ShadowSide_Custom_bin2_EO_5x_IO_20x_0.4NA_LP_28mW_Exp_50ms_LaserEvoked_1/DeNoisedImageSet.mat'],'im_doub_touse','-v7.3');
+%save([savefigpath,'DeNoisedImageSet.mat'],'im_doub_touse','-v7.3');
 
-hf = figure; set(hf,'position',[403 386 1114 544]);
-subplot(121); 
-imshow(im_uint16(:,:,900),[]); 
-title('Original Image'); 
-subplot(122); 
-if strcmp(answ(1),'T'); imshow(TVL1(im_uint16_red(:,:,900), 0.5, niter),[]); 
-elseif strcmp(answ(1),'M');  imshow(ill_medZim_denoised{2},[]); 
-else imshow(ill_medZim,[]); 
-end
-title('Denoised Image'); 
-suptitle(['Denoising. Method : ',char(meth)]); 
-saveas(hf, [savefigpath,'deNoising_illustration'], 'fig'); 
+% hf = figure; set(hf,'position',[403 386 1114 544]);
+% imcnt = 200; 
+% subplot(121); 
+% imshow(im_uint16(y(1):y(2),x(1):x(2),imcnt),[]); %900
+% title('Original Image'); 
+% subplot(122); 
+% if strcmp(answ(1),'T'); imshow(TVL1(im_uint16_red(:,:,imcnt), 1, niter),[]); 
+% elseif strcmp(answ(1),'M');  imshow(ill_medZim_denoised{2},[]); 
+% else imshow(ill_medZim,[]); 
+% end
+% title('Denoised Image'); 
+% suptitle(['Denoising. Method : ',char(meth)]); 
+% %saveas(hf, [savefigpath,'deNoising_illustration'], 'fig'); 
 
 % ------------------------------ Step 4 -----------------------------------
 % Determine the standard deviation of Gaussian kernel for CaImAn: half the
 % size of neuron. We will use a template neuron from median projected image
 % to determine the std. 
 
-tempimg = median(Y,3); 
-Npts = 6;
-hf = figure; imshow(tempimg,[]); hold on; 
-title(['You have ',num2str(Npts),' points to define ROI outline']); 
+% tempimg = medZim; 
+% hf = figure; imshow(tempimg,[]); 
+%saveas(hf, '/Users/Suva/Documents/Projects/LightSheet/Temp_data_storage/2020-04-02-0/Matlab_data_figs/medZim','tif');
+
+hf = figure; 
+imshow(medZim,[]); hold on; 
+title('Zoom into a region for selecting ROIs, then press Enter!');
+zoom(hf,'on'); 
+pause(); 
+title('Select the outline of an ROI using left click, and press Enter when done!');
+zoom reset;
+clear x y; 
 [x_,y_] = deal([]); 
-for i=1:Npts
-    [x,y] = ginput(1); 
-    x_ = [x_ x]; 
-    y_ = [y_ y]; 
-    if i==Npts
-        x_ = [x_ x_(1)];
-        y_ = [y_ y_(1)];
-    end
-    plot(x_,y_,'.-y','markersize',8,'linewidth',1); hold on; 
+but = 1; 
+while ~isempty(but)
+    [x,y,but] = ginput(1);
+    x_ = [x_ x];
+    y_ = [y_ y];
+    plot(x_,y_,'.-y','markersize',8,'linewidth',1); hold on;
 end
-rad = ceil(sqrt(polyarea(x_,y_)/pi)); % fit a circle to a polygon
-saveas(hf, [savefigpath,'define_std_GaussKernel'], 'fig'); 
+title('Template ROI is now selected'); 
+pshape = polyshape(x_,y_,'simplify',true);
+rad = round(sqrt(pshape.area/pi)); % fit a circle to a polygon
+%saveas(hf, [savefigpath,'define_std_GaussKernel'], 'fig'); 
 
 
 
@@ -240,10 +328,6 @@ saveas(hf, [savefigpath,'define_std_GaussKernel'], 'fig');
 
 %% Run CaImAn
 
-addpath(caimanpath); 
-addpath(genpath([caimanpath,'utilities'])); 
-addpath(genpath([caimanpath,'deconvolution'])); 
-
 Y = cast(im_doub_touse,'single'); 
 clear im_doub_touse; 
  
@@ -255,25 +339,33 @@ d = d1*d2;                                          % total number of pixels
 
 %% Set parameters
  
-K = 20;                                           % number of components to be found
-tau = rad;                                      % std of gaussian kernel (half size of neuron) 
-p = 2; 
+K = 50;                                             % number of components to be found
+tau = rad;                                          % std of gaussian kernel (half size of neuron) : Need to be Integer 
+p = 2;                                              % order of AR model dynamics
+pixels = 1:numel(Y)/size(Y,ndims(Y));               % pixels to include when computing the AR coefs
  
-options = CNMFSetParms('d1',d1,'d2',d2,'p',p,'gSig',tau,'merge_thr',0.80,'nb',2,...
-    'min_SNR',3,'space_thresh',0.5,'cnn_thr',0.2);  
+options = CNMFSetParms('d1',d1,'d2',d2,'p',p,'gSig',tau,...
+    'pixels',pixels,'extract_max',false,'cluster_pixels',true,'flag_g',true,'split_data',true,...
+    'merge_thr',0.80,'nb',2,'min_SNR',3,'space_thresh',0.5,'cnn_thr',0.2,...
+    'fr',fps,'decay_time',decaytconst,...
+    'ind',[4 5 6 7]);  
 % options = CNMFSetParms(...   
 %     'd1',d1,'d2',d2,...                         % dimensionality of the FOV
 %     'p',p,...                                   % order of AR dynamics    
 %     'gSig',tau,...                              % half size of neuron
 %     'merge_thr',0.80,...                        % merging threshold  
+%     'pixels',pixels,...                         % pixels used for AR coefficients
 %     'nb',2,...                                  % number of background components    
 %     'min_SNR',3,...                             % minimum SNR threshold
 %     'space_thresh',0.5,...                      % space correlation threshold
-%     'cnn_thr',0.6...                            % threshold for CNN classifier    
+%     'cnn_thr',0.6...                            % threshold for CNN classifier 
+%     'cluster_pixels',false,...                  % cluster pixels to active/inactive based on PSD
+%     'flag_g',false,...                          % estimate global time constant through autocorrelation
 %     );
+
 %% Data pre-processing
  
-[P,Y] = preprocess_data(Y,p);
+[P,Y] = preprocess_data(Y,p,options);
 %% fast initialization of spatial components using greedyROI and HALS
 
 [Ain,Cin,bin,fin,center] = initialize_components(Y,K,tau,options,P);  % initialize
@@ -281,7 +373,7 @@ options = CNMFSetParms('d1',d1,'d2',d2,'p',p,'gSig',tau,'merge_thr',0.80,'nb',2,
 % display centers of found components
 Cn =  correlation_image(Y); %reshape(P.sn,d1,d2);  %max(Y,[],3); %std(Y,[],3); % image statistic (only for display purposes)
 
-figure;
+figure; set(gcf,'position',[235   177   971   599]); 
 imagesc(double(Cn)); colormap gray; 
 axis equal; axis tight; hold all;
 scatter(center(:,2),center(:,1),'mo');
@@ -303,7 +395,7 @@ Yr = reshape(Y,d,T);
 P.p = 0;    % set AR temporarily to zero for speed
 [C,f,P,S,YrA] = update_temporal_components(Yr,A,b,Cin,fin,P,options);
 
-%% classify components
+%% classify components (implementation in Pnevmatikakis et.al) 
 
 rval_space = classify_comp_corr(Y,A,C,b,f,options);
 ind_corr = rval_space > options.space_thresh;           % components that pass the correlation test
@@ -313,7 +405,8 @@ ind_corr = rval_space > options.space_thresh;           % components that pass t
 try  % matlab 2017b or later is needed
     [ind_cnn,value] = cnn_classifier(A,[d1,d2],'cnn_model',options.cnn_thr);
 catch
-    ind_cnn = true(size(A,2),1);                        % components that pass the CNN classifier
+    ind_cnn = true(size(A,2),1); 
+    % components that pass the CNN classifier
 end     
                             
 %% event exceptionality
@@ -333,6 +426,7 @@ figure;
         title('Kept Components');
     subplot(122); montage(extract_patch(A(:,~keep),[d1,d2],[30,30]),'DisplayRange',[0,0.15])
         title('Discarded Components');
+        
 %% merge found components
 [Am,Cm,K_m,merged_ROIs,Pm,Sm] = merge_components(Yr,A_keep,b,C_keep,f,P,S,options);
 
@@ -342,18 +436,18 @@ if and(display_merging, ~isempty(merged_ROIs))
     i = 1; %randi(length(merged_ROIs));
     ln = length(merged_ROIs{i});
     figure;
-        set(gcf,'Position',[300,300,(ln+2)*300,300]);
-        for j = 1:ln
-            subplot(1,ln+2,j); imagesc(reshape(A_keep(:,merged_ROIs{i}(j)),d1,d2)); 
-                title(sprintf('Component %i',j),'fontsize',16,'fontweight','bold'); axis equal; axis tight;
-        end
-        subplot(1,ln+2,ln+1); imagesc(reshape(Am(:,K_m-length(merged_ROIs)+i),d1,d2));
-                title('Merged Component','fontsize',16,'fontweight','bold');axis equal; axis tight; 
-        subplot(1,ln+2,ln+2);
-            plot(1:T,(diag(max(C_keep(merged_ROIs{i},:),[],2))\C_keep(merged_ROIs{i},:))'); 
-            hold all; plot(1:T,Cm(K_m-length(merged_ROIs)+i,:)/max(Cm(K_m-length(merged_ROIs)+i,:)),'--k')
-            title('Temporal Components','fontsize',16,'fontweight','bold')
-        drawnow;
+    set(gcf,'Position',[300,300,(ln+2)*300,300]);
+    for j = 1:ln
+        subplot(1,ln+2,j); imagesc(reshape(A_keep(:,merged_ROIs{i}(j)),d1,d2)); 
+            title(sprintf('Component %i',j),'fontsize',16,'fontweight','bold'); axis equal; axis tight;
+    end
+    subplot(1,ln+2,ln+1); imagesc(reshape(Am(:,K_m-length(merged_ROIs)+i),d1,d2));
+            title('Merged Component','fontsize',16,'fontweight','bold');axis equal; axis tight; 
+    subplot(1,ln+2,ln+2);
+        plot(1:T,(diag(max(C_keep(merged_ROIs{i},:),[],2))\C_keep(merged_ROIs{i},:))'); 
+        hold all; plot(1:T,Cm(K_m-length(merged_ROIs)+i,:)/max(Cm(K_m-length(merged_ROIs)+i,:)),'--k')
+        title('Temporal Components','fontsize',16,'fontweight','bold')
+    drawnow;
 end
 
 %% refine estimates excluding rejected components
@@ -363,25 +457,31 @@ Pm.p = p;    % restore AR value
 [C2,f2,P2,S2,YrA2] = update_temporal_components(Yr,A2,b2,C2,f,Pm,options);
 
 
-%% do some plotting
+%% extract dF/F, and plot 
 
 [A_or,C_or,S_or,P_or] = order_ROIs(A2,C2,S2,P2); % order components
 K_m = size(C_or,1);
 [C_df,~] = extract_DF_F(Yr,A_or,C_or,P_or,options); % extract DF/F values (optional)
 
-figure;
-[Coor,json_file] = plot_contours(A_or,Cn,options,1); % contour plot of spatial footprints
+
+figure; 
+[Coor,json_file, im] = plot_contours(A_or,Cn,options,1); % contour plot of spatial footprints
+colormap gray; 
 %savejson('jmesh',json_file,'filename');        % optional save json file with component coordinates (requires matlab json library)
 
 %% display components
+
 options.save_avi = 1; 
 plot_components_GUI(Yr,A_or,C_or,b2,f2,Cn,options);
 
 %% make movie
-if (0)  
+if (1)  
     make_patch_video(A_or,C_or,b2,f2,Yr,Coor,options)
 end
 
+%% run movie 
+
+% run_movie.m
 
 
 

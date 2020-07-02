@@ -19,6 +19,9 @@ function [ inferred, filtered, raw ] = signalExtraction(Y,A,C,b,f,d1,d2,extractC
 % CR: information of the cell contour used in raw signal calculation
 
 % Author: Eftychios A. Pnevmatikakis, and Weijian Yang
+%
+% ------------- modified by Suva Roy, 04/15/2020 -------------%
+
 
 if isfield(extractControl,'baselineRatio') baselineRatio=extractControl.baselineRatio;
 else baselineRatio=0.25; end
@@ -38,6 +41,8 @@ A = A2(:,1:K);
 C = C2(1:K,:);
 b = A2(:,K+1:end);
 f = C2(K+1:end,:);
+
+Y = double(Y); % ------------- modified by Suva Roy-------------%
 
 % infer signal
 Yf = A'*(Y - A*C);
