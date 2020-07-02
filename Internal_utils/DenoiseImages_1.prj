@@ -1,0 +1,77 @@
+<deployment-project plugin="plugin.apptool" plugin-version="1.0">
+  <configuration file="/Users/Suva/Documents/Projects/LightSheet/MatlabCodes/Internal_utils/DenoiseImages_1.prj" location="/Users/Suva/Documents/Projects/LightSheet/MatlabCodes/Internal_utils" name="DenoiseImages_1" target="target.mlapps" target-name="Package App">
+    <param.appname>DenoiseImages_1</param.appname>
+    <param.authnamewatermark />
+    <param.email />
+    <param.company />
+    <param.icon />
+    <param.icons />
+    <param.summary />
+    <param.description />
+    <param.screenshot>/private/var/folders/9q/xhhx0sbj2jj4kkdb8f1dzz3r0000gn/T/tpae0b58cb_9fcd_4cb1_9ba4_9278bfba878b.png</param.screenshot>
+    <param.version>1.0</param.version>
+    <param.products.name />
+    <param.products.id />
+    <param.products.version />
+    <param.platforms />
+    <param.output>/Users/Suva/Documents/Projects/LightSheet/MatlabCodes/Internal_utils</param.output>
+    <param.guid>d7b5bd15-7d52-448e-aa4b-b92f421a1a81</param.guid>
+    <unset>
+      <param.authnamewatermark />
+      <param.email />
+      <param.company />
+      <param.icon />
+      <param.icons />
+      <param.summary />
+      <param.description />
+      <param.version />
+      <param.products.name />
+      <param.products.id />
+      <param.products.version />
+      <param.platforms />
+      <param.output />
+    </unset>
+    <fileset.main>
+      <file>${PROJECT_ROOT}/DenoiseSelect.mlapp</file>
+    </fileset.main>
+    <fileset.depfun />
+    <fileset.resources />
+    <fileset.package />
+    <build-deliverables>
+      <file location="/Users/Suva/Documents/Projects/LightSheet/MatlabCodes" name="Internal_utils" optional="false">/Users/Suva/Documents/Projects/LightSheet/MatlabCodes/Internal_utils</file>
+    </build-deliverables>
+    <workflow />
+    <matlab>
+      <root>/Applications/MATLAB_R2018b.app</root>
+      <toolboxes>
+        <toolbox name="matlabcoder" />
+        <toolbox name="neuralnetwork" />
+      </toolboxes>
+      <toolbox>
+        <matlabcoder>
+          <enabled>true</enabled>
+        </matlabcoder>
+      </toolbox>
+      <toolbox>
+        <neuralnetwork>
+          <enabled>true</enabled>
+        </neuralnetwork>
+      </toolbox>
+    </matlab>
+    <platform>
+      <unix>true</unix>
+      <mac>true</mac>
+      <windows>false</windows>
+      <win2k>false</win2k>
+      <winxp>false</winxp>
+      <vista>false</vista>
+      <linux>false</linux>
+      <solaris>false</solaris>
+      <osver>10.15.3</osver>
+      <os32>false</os32>
+      <os64>true</os64>
+      <arch>maci64</arch>
+      <matlab>true</matlab>
+    </platform>
+  </configuration>
+</deployment-project>
