@@ -25,9 +25,9 @@ addpath(genpath([initpath,'Experiments/Imaging/Light_Sheet/Analysis/Matlab/Exter
 
 
 % Set full path for raw data, scripts and analyzed data and figures 
-datanam = 'Data_400001'; 
-datadat = '2020-06-26-0';
-whicheye = 'LE'; 
+datanam = 'Data_1300001'; 
+datadat = '2020-07-07-0';
+whicheye = 'RE_ventral'; 
 tiffpath = [initpath,'Experiments/Imaging/Light_Sheet/Analysis/',char(datadat),'/',char(whicheye),'/',char(datanam),'/'];
 fijiprojim = [];
 if ~exist([initpath,'Experiments/Imaging/Light_Sheet/Analysis/',char(datadat),'/',char(whicheye),'/Matlab_outputs'],'dir')
@@ -36,7 +36,7 @@ end
 matfigsavepath = [initpath,'Experiments/Imaging/Light_Sheet/Analysis/',char(datadat),'/',char(whicheye),'/Matlab_outputs/'];
 
 % Do you want to save figs, or run in debug mode? 
-save_fig = false; 
+save_fig = true; 
 
 % Names of videos 
 vid_Ca_spatiotemporal_resp = [matfigsavepath,'vid_',char(datanam),'_fullim_roi_fluorescentTrace.mp4'];
@@ -45,9 +45,10 @@ make_video = false;
 % Do you have stimulus? 
 stim_exist = true;
 stim.waveform = 'square'; 
-stim.period = 1; % sec 
-stim.amplitude = 70; % sec 
-stim.pulse_width = 25/1000; % sec  
+stim.period = 2; % sec 
+stim.amplitude = 80; % sec 
+stim.pulse_width = []; % sec 
+stim.repeat = true; 
 
 
 
@@ -84,11 +85,12 @@ end
 %% Read image file, remove outliers, denoise images 
 
 % Steps: 
-%   (1) Read image files and properties 
-%   (2) Remove redundant regions of the image (Suggested: select this region after
-%       watching the activity in FIJI)
-%   (3) Denoise images using either pre-trained deep learning network
-%   (4) Identify sequence of images where light was flashed (not implemented yet)
+%   (1) Read image files and properties
+%   (2) Select FOV containing the most prominent structures
+%   (3) Select size of ROIs (current implementation works for only 1 size (for ex. soma or dendritic spines, not both) 
+%   (4) Adjust uneven brightness in images due to shadow or uneven  illumination 
+%   (5) Destriping images - specific to light sheet (not implemented yet)
+%   (6) Denoise images (sequentially) based on nonlocal means filtering
 
 % ****** Implement sparse/Tall arrays for memory efficiency 
 
@@ -117,7 +119,7 @@ dims = [info(1).Height info(2).Width];
 
 strextrct = info(1).ImageDescription(regexpi(info(1).ImageDescription,'Exposure'):regexpi(info(1).ImageDescription,'Exposure')+18); 
 fps = 1/str2double(strextrct(regexpi(strextrct,'=')+2:regexpi(strextrct,'=')+8)); % frame rate (/sec)
-decaytconst = 270/1000; % sec (GCaMP7f: from Dana etal. 2018)
+decaytconst = 270/1000; % sec (GCaMP7f: from Dana et.al 2018)
 
 % ------------------------------ Step 2 -----------------------------------
 % Calcium image files can be big, we want to minimize redundancy in the
@@ -144,14 +146,8 @@ im_uint16(:,:,1:startim-1) = [];
 medZim = median(im_uint16,3);  % Median projection
 stdZim = std(double(im_uint16),0,3); % std projection
 qtl = 0.75; % upper quantile value 
-range_med = [double((median(medZim(:))-quantile(medZim(:),1-qtl))<=min(medZim(:)))*min(medZim(:)) + ...
-    double( (median(medZim(:))-quantile(medZim(:),1-qtl))>min(medZim(:)) )*(median(medZim(:))-quantile(medZim(:),1-qtl)) ...
-    double( (median(medZim(:))+quantile(medZim(:),qtl))>=max(medZim(:)) )*max(medZim(:)) + ...
-    double( (median(medZim(:))+quantile(medZim(:),qtl))<max(medZim(:)) )*(median(medZim(:))+quantile(medZim(:),qtl))];
-range_std = [double((median(stdZim(:))-quantile(stdZim(:),1-qtl))<=min(stdZim(:)))*min(stdZim(:)) + ...
-    double( (median(stdZim(:))-quantile(stdZim(:),1-qtl))>min(stdZim(:)) )*(median(stdZim(:))-quantile(stdZim(:),1-qtl)) ...
-    double( (median(stdZim(:))+quantile(stdZim(:),qtl))>=max(stdZim(:)) )*max(stdZim(:)) + ...
-    double( (median(stdZim(:))+quantile(stdZim(:),qtl))<max(stdZim(:)) )*(median(stdZim(:))+quantile(stdZim(:),qtl))];
+range_med = get_intensity_range(medZim); 
+range_std = get_intensity_range(stdZim); 
 hf1 = fig_pintomonitor(); 
 ha11 = subplot(1,2,1); 
 imshow(medZim, range_med, 'Parent', ha11); title('Median image'); 
@@ -165,14 +161,20 @@ close(hf1);
 
 % Ask user for selecting Area of Interest
 hf2 = fig_pintomonitor; 
-imshow(medZim,[]); imcontrast; hold on; title('Select the vertices of rectangular Area of Interest'); 
+range_med = get_intensity_range(medZim); 
+imshow(medZim, range_med); imcontrast;  hold on; title('Select the vertices of rectangular Area of Interest'); 
 [x,y] = deal([]); 
 for i=1:2
     [x(i),y(i)] = ginput(1);
-    h = plot(x(i),y(i),'or','markersize',10,'linewidth',3); hold on; 
+    x(i) = round(x(i)); 
+    y(i) = round(y(i)); 
+    if x(i)<1; x(i)=1; end
+    if y(i)<1; y(i)=1; end
+    if x(i)>size(medZim,2); x(i)=size(medZim,2); end
+    if y(i)>size(medZim,1); y(i)=size(medZim,1); end 
+    h = plot(x(i),y(i),'or','markersize',8,'linewidth',3); hold on; 
     set(get(get(h,'Annotation'),'LegendInformation'),'IconDisplayStyle','off'); 
 end
-x = sort(ceil(x)); y = sort(ceil(y)); 
 AOI_x = [x(1) x(2) x(2) x(1) x(1)]; % Area of Interest
 AOI_y = [y(1) y(1) y(2) y(2) y(1)]; 
 plot(AOI_x,AOI_y,'-y','linewidth',3); legend('Area for analysis'); 
@@ -195,7 +197,8 @@ medZim = median(im_uint16_red,3); % median projection
 % Limitation: Current version allows only 1 size of ROIs. 
 
 hf3 = fig_pintomonitor; 
-imshow(medZim,[]); hold on; 
+range_medZim = get_intensity_range(medZim); 
+imshow(medZim,range_medZim); imcontrast; hold on; 
 title('Zoom into a region for selecting ROIs, then press Enter!');
 zoom(hf3,'on'); 
 pause(); 
@@ -250,25 +253,32 @@ end
 % ------------------------------ Step 6 -----------------------------------
 % Denoise images using either (1) Non-local means filtering, or, (2) CNN classifier 
 
-% Denoising image based on Non-local means filtering 
-im_uint16_red_denoised = zeros(size(im_uint16_red),'uint16'); 
-parfor_progress(num_images);
-parfor k=1:num_images
-    im_uint16_red_denoised(:,:,k) = imnlmfilt(im_uint16_red(:,:,k),'SearchWindowSize',15,'ComparisonWindowSize',5);
-    parfor_progress;
+denoiseim = questdlg( 'Do you want to denoise images?','De-noising images.',...
+    ['Yes'],['No'],['No']);
+if strcmpi(denoiseim,'Yes')
+    im_uint16_red_denoised = zeros(size(im_uint16_red),'uint16'); 
+    parfor_progress(num_images);
+    parfor k=1:num_images
+        im_uint16_red_denoised(:,:,k) = imnlmfilt(im_uint16_red(:,:,k),'SearchWindowSize',15,'ComparisonWindowSize',5);
+        parfor_progress;
+    end
+    parfor_progress(0);
+    medZim_red = median(im_uint16_red_denoised,3);     
+    range_med = get_intensity_range(medZim); 
+    range_med_red = get_intensity_range(medZim_red); 
+
+    hf4 = fig_pintomonitor(); 
+    subplot(1,2,1); imshow(medZim,range_med); title('Before denoising: Median projection'); 
+    subplot(1,2,2); imshow(medZim_red,range_med_red); title('After denoising: Median projection');
+
+    denoiselogical = questdlg( 'Keep/discard denoised images.','Denoise comparison.',...
+        ['Keep'],['Discard'],['Discard']);
+    if strcmpi(denoiselogical, 'Keep')
+        im_uint16_red = im_uint16_red_denoised; 
+    end
+    clear im_uint16_red_denoised; 
+    close(hf4); 
 end
-parfor_progress(0);
-medZim_red = median(im_uint16_red_denoised,3); 
-hf4 = fig_pintomonitor(); 
-subplot(1,2,1); imshow(medZim,[]); title('Before denoising: Median projection'); 
-subplot(1,2,2); imshow(medZim_red,[]); title('After denoising: Median projection'); 
-denoiselogical = questdlg( 'Keep/discard denoised images.','Denoise comparison.',...
-    ['Keep'],['Discard'],['Discard']);
-if strcmpi(denoiselogical, 'Keep')
-    im_uint16_red = im_uint16_red_denoised; 
-end
-clear im_uint16_red_denoised; 
-close(hf4); 
     
 
 
@@ -289,8 +299,8 @@ d = d1*d2;
 %overlap = 2.*gSig.*[1,1];% amount of overlap in each dimension (optional, default: [4,4])
 %patch_size = [32,32];    % size of each patch along each dimension (optional, default: [32,32])
 
-K = 4;                                              % number of components to be found
-gSig = ceil(1*rad);                                 % std of gaussian kernel (half size of neuron) : Need to be Integer 
+K = 8;                                              % number of components to be found
+gSig = ceil(1.*rad);                                % std of gaussian kernel (half size of neuron) : Need to be Integer 
 p = 1;                                              % order of AR model dynamics (default: 1)
 pixels = 1:numel(Y)/size(Y,ndims(Y));               % pixels to include when computing the AR coefs
 refine_components = false;                          % flag for manual refinement
@@ -305,7 +315,7 @@ options = CNMFSetParms(...
     'split_data',true,...                           % reduce memory overhead 
     'merge_thr',0.80,...                            % merge of activity correlation is > 
     'nb',1,...                                      % number of background components (default: 1)  
-    'min_SNR',0.8,...                                 % minimum SNR threshold
+    'min_SNR',1.5,...                               % minimum SNR threshold
     'space_thresh',0.5,...                          % space correlation threshold
     'cnn_thr',0.2,...                               % threshold for CNN classifier 
     'fr',fps,....                                   % frame rate of image acquisition 
@@ -330,6 +340,7 @@ options = CNMFSetParms(...
 % -------------------------------------------------------------------------
 % Manually refine components (optional)
 if refine_components
+    Cn = correlation_image(Y); 
     [Ain,Cin,center] = manually_refine_components(Y,Ain,Cin,center,Cn,tau,options);
 end
    
@@ -366,7 +377,7 @@ ind_exc = (fitness < options.min_fitness);
 
 % -------------------------------------------------------------------------
 % Keep select components and discard remaining 
-keep = (ind_corr | ind_cnn) & ind_exc;
+keep = (ind_corr | ind_cnn) ; %& ind_exc;
 A_keep = A(:,keep);
 C_keep = C(keep,:);
 
@@ -438,7 +449,7 @@ end
 % Fig 1: temporal trace, dF/F0 trace, residual trace and background for all components (stacked) 
 t_axis = (1:num_images).*1/fps; % ms 
 numcomp = size(C2,1); 
-clx_trace = brewermap(3,'Dark2')';
+clx_trace = brewermap(3,'Set2')';
 if stim_exist 
     xll = [0 stim.period.*10]; 
 else
@@ -448,12 +459,17 @@ extid = find(t_axis<=xll(2),1,'last');
 
 if sum(keep)~=0
     hf101 = fig_pintomonitor('','fracx',0.7); 
-    tiledlayout(2,2); 
-    ax1 = nexttile;
-    ax2 = nexttile;
-    ax3 = nexttile;
-    ax4 = nexttile;
-    hold([ax1 ax2 ax3 ax4],'on');
+    %tiledlayout(2,2); 
+    %ax1 = nexttile;
+    %ax2 = nexttile;
+    %ax3 = nexttile;
+    %ax4 = nexttile;
+    %hold([ax1, ax2, ax3, ax4],'on');
+    ax1 = subplot(2,2,1); 
+    ax2 = subplot(2,2,2); 
+    ax3 = subplot(2,2,3); 
+    ax4 = subplot(2,2,4); 
+    hold(ax1,'on'); hold(ax2,'on'); hold(ax3,'on'); hold(ax4,'on');
     
     for i=1:numcomp  
         y1 = C2(i,1:extid); 
@@ -508,25 +524,106 @@ if sum(keep)~=0
 else 
     warning('No ROIs detected'); 
 end
+suptitle(sprintf('Stim: %s, amplitude %dmV ',stim.waveform,stim.amplitude)); 
+if save_fig
+    savefig(hf101,[matfigsavepath,datanam,'_temporal_traces.fig']); 
+end
+ 
 
 
-% Fig 2: correlation image and components 
+% Fig 2: Spatial footprint 
 ln_cl = 'r';
 txt_cl = 'y'; 
 max_number = size(A2,2); 
 ind_show = 1:max_number; 
 backg = reshape(b2,d1,d2);
-hf102 = fig_pintomonitor('','fracx',0.5,'aspect_ratio_x_y', 4/3); 
+hf102 = fig_pintomonitor('','fracx',0.6); 
 ha = axes('Parent',hf102); 
-clrmap = flipud(cbrewer('seq', 'YlGnBu', 100,'pchip'));
+clrmap = flipud(brewermap(10,'Greys'));
 [Coor] = contour_plot_simple(A2,backg,options,true,ln_cl,txt_cl,clrmap,ha);  
 title('Spatial components'); 
+if save_fig
+    savefig(hf102,[matfigsavepath,datanam,'_spatial_footprint.fig']); 
+end
 
 
-
-
-
-
+% Fig 3: Plot raster and psth 
+if stim.repeat 
+    framedur_s = 1/fps; % s
+    total_time_s = num_images * framedur_s; % s 
+    time_s = framedur_s .* (1:num_images); % s 
+    stimstartid = (find(mod(time_s, stim.period)==0))+1; 
+    if length(stimstartid)==ceil(time_s(end)/stim.period) && stimstartid(end)>num_images
+        stimstartid = [1 stimstartid(1:end-1)];
+    end
+    numfr_pertrial = round(mean(diff(stimstartid))); 
+    num_repeats = length(stimstartid);
+    stim_x_1trial = stim_xtrace(1:find(stim_xtrace==stim.period,1,'first')); 
+    stim_y_1trial = stim_ytrace(1:find(stim_xtrace==stim.period,1,'first'));
+    
+    hf103 = fig_pintomonitor('','fracx',0.7); 
+    nc = ceil(sqrt(size(C2,1))); 
+    nr = ceil(size(C2,1)/nc); 
+    clx_ht = [linspace(0,1,num_repeats)' linspace(0,0,num_repeats)' linspace(1,0,num_repeats)']; 
+    tcks = [0 num_repeats-1];
+    tcklbl = {'1',num2str(num_repeats)};  
+    clx_grey = 0.2.*[1 1 1];
+    [xtrace_accum,ytrace_accum] = deal(zeros(size(C2,1),num_repeats,numfr_pertrial)); 
+    for n=1:size(C2,1)
+        yfull = F_dff(n,:); 
+        outlierid = find(yfull > 10.*std(yfull)); 
+        yfull(outlierid) = mean(yfull); 
+        tbin = (1:numfr_pertrial).*framedur_s; 
+        
+        ax = subplot(nr,nc,n); box off; 
+        for i=1:num_repeats
+            ytrace = yfull((i-1)*numfr_pertrial+1:i*numfr_pertrial); 
+            ytrace = ytrace  - min(ytrace); % reset baseline if there is drift 
+            plot(tbin, ytrace, '-','color',clx_ht(i,:)); hold on; 
+            ytrace_accum(n,i,:) = ytrace; 
+            xtrace_accum(n,i,:) = tbin;
+        end
+        title(sprintf('ROI %d',n)); 
+        ylabel('dF/F0'); 
+        xlabel('Time (s)');
+        set(ax,'FontSize',12,'box','off');
+        colormap(ax,clx_ht);
+        cb = colorbar;
+        cb.Label.String = 'Trial #';
+        cb.Ticks = [cb.Ticks(1) cb.Ticks(end)];
+        cb.TickLabels = {'1',num2str(num_repeats)};
+        cb.FontSize = 12;
+        
+        yll = get(gca,'ylim');
+        plot(stim_x_1trial, stim_y_1trial.*diff(yll)./max(stim_y_1trial) + yll(1),'-','color',clx_grey,'linewidth',2); 
+    end
+    if save_fig
+        savefig(hf103,[matfigsavepath,datanam,'_response_per_trial.fig']);
+    end
+    
+    
+    hf104 = fig_pintomonitor('','fracx',0.7); 
+    nc = ceil(sqrt(size(C2,1))); 
+    nr = ceil(size(C2,1)/nc); 
+    for n=1:size(C2,1)
+        subplot(nr,nc,n);
+        xx = squeeze(xtrace_accum(n,1,:)); 
+        yy = squeeze(mean(ytrace_accum(n,:,:),2));
+        yystd = squeeze(std(ytrace_accum(n,:,:),[],2)); 
+        
+        shadedErrorBar(xx,yy,yystd,'-m'); hold on;
+        yll = get(gca,'ylim');
+        plot(stim_x_1trial, stim_y_1trial.*diff(yll)./max(stim_y_1trial),'-','color',clx_grey,'linewidth',2); 
+        ylabel('dF/F0'); 
+        xlabel('Time (s)');
+        title(sprintf('ROI %d',n)); 
+        set(ax,'FontSize',12,'box','off');
+    end
+    if save_fig
+        savefig(hf104,[matfigsavepath,datanam,'_meanresponse_trials.fig']);
+    end
+    
+end
 
 
 
