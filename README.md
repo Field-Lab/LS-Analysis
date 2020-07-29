@@ -1,1 +1,1 @@
-# LS-CaImAn
+# LS-Analysis
